@@ -100,3 +100,132 @@
         false
     )
 )
+
+
+
+(define-public (renew-policy (policy-id uint) (duration uint))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+        (new-expiry (+ stacks-block-height duration))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (try! (stx-transfer? (get premium policy) tx-sender contract-owner))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: (get owner policy),
+                premium: (get premium policy),
+                coverage-amount: (get coverage-amount policy),
+                status: policy-active,
+                expiry: new-expiry
+            }
+        )
+        (ok true)
+    )
+)
+
+
+
+(define-public (cancel-policy (policy-id uint))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (asserts! (is-eq (get status policy) policy-active) (err u3))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: (get owner policy),
+                premium: (get premium policy),
+                coverage-amount: (get coverage-amount policy),
+                status: policy-inactive,
+                expiry: (get expiry policy)
+            }
+        )
+        (ok true)
+    )
+)
+
+(define-public (approve-claim (claim-id uint))
+    (let (
+        (claim (unwrap! (map-get? claims {claim-id: claim-id}) (err u1)))
+    )
+        (asserts! (is-eq (get status claim) "PENDING") (err u2))
+        (map-set claims
+            { claim-id: claim-id }
+            {
+                policy-id: (get policy-id claim),
+                amount: (get amount claim),
+                status: "APPROVED",
+                timestamp: (get timestamp claim)
+            }
+        )
+        (ok true)
+    )
+)
+
+
+(define-constant health-insurance u1)
+(define-constant life-insurance u2)
+(define-constant property-insurance u3)
+
+(define-map policy-categories
+    { policy-id: uint }
+    { category: uint }
+)
+
+(define-public (set-policy-category (policy-id uint) (category uint))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (map-set policy-categories
+            { policy-id: policy-id }
+            { category: category }
+        )
+        (ok true)
+    )
+)
+
+
+(define-map claim-evidence
+    { claim-id: uint }
+    { evidence-hash: (string-ascii 64), timestamp: uint }
+)
+
+(define-public (submit-claim-evidence (claim-id uint) (evidence-hash (string-ascii 64)))
+    (let (
+        (claim (unwrap! (map-get? claims {claim-id: claim-id}) (err u1)))
+    )
+        (map-set claim-evidence
+            { claim-id: claim-id }
+            { 
+                evidence-hash: evidence-hash,
+                timestamp: stacks-block-height
+            }
+        )
+        (ok true)
+    )
+)
+
+
+
+
+(define-public (transfer-policy (policy-id uint) (new-owner principal))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: new-owner,
+                premium: (get premium policy),
+                coverage-amount: (get coverage-amount policy),
+                status: (get status policy),
+                expiry: (get expiry policy)
+            }
+        )
+        (ok true)
+    )
+)
