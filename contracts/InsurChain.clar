@@ -100,3 +100,104 @@
         false
     )
 )
+
+
+(define-public (renew-policy (policy-id uint) (duration uint))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+        (current-premium (get premium policy))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (try! (stx-transfer? current-premium tx-sender contract-owner))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: (get owner policy),
+                premium: current-premium,
+                coverage-amount: (get coverage-amount policy),
+                status: policy-active,
+                expiry: (+ stacks-block-height duration)
+            }
+        )
+        (ok true)
+    )
+)
+
+(define-constant refund-percentage u70) ;; 70% refund
+(define-constant hundred u100)
+
+(define-public (cancel-policy (policy-id uint))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+        (refund-amount (/ (* (get premium policy) refund-percentage) hundred))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (asserts! (is-eq (get status policy) policy-active) (err u3))
+        
+        (try! (as-contract (stx-transfer? refund-amount contract-owner (get owner policy))))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: (get owner policy),
+                premium: (get premium policy),
+                coverage-amount: (get coverage-amount policy),
+                status: policy-inactive,
+                expiry: (get expiry policy)
+            }
+        )
+        (ok refund-amount)
+    )
+)
+
+(define-public (upgrade-coverage (policy-id uint) (new-coverage-amount uint))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+        (coverage-difference (- new-coverage-amount (get coverage-amount policy)))
+        (premium-increase (/ (* coverage-difference (get premium policy)) (get coverage-amount policy)))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (asserts! (is-eq (get status policy) policy-active) (err u3))
+        (asserts! (> new-coverage-amount (get coverage-amount policy)) (err u4))
+        
+        (try! (stx-transfer? premium-increase tx-sender contract-owner))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: (get owner policy),
+                premium: (+ (get premium policy) premium-increase),
+                coverage-amount: new-coverage-amount,
+                status: (get status policy),
+                expiry: (get expiry policy)
+            }
+        )
+        (ok true)
+    )
+)
+
+(define-constant emergency-status "EMERGENCY")
+(define-constant emergency-multiplier u150) ;; 150% of normal coverage
+
+(define-public (submit-emergency-claim (policy-id uint) (amount uint))
+    (let (
+        (claim-id (var-get next-claim-id))
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+        (max-emergency-coverage (/ (* (get coverage-amount policy) emergency-multiplier) hundred))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (asserts! (is-eq (get status policy) policy-active) (err u3))
+        (asserts! (<= amount max-emergency-coverage) (err u4))
+        
+        (map-set claims
+            { claim-id: claim-id }
+            {
+                policy-id: policy-id,
+                amount: amount,
+                status: emergency-status,
+                timestamp: stacks-block-height
+            }
+        )
+        (var-set next-claim-id (+ claim-id u1))
+        (ok claim-id)
+    )
+)
+
