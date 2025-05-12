@@ -201,3 +201,85 @@
     )
 )
 
+(define-constant err-not-authorized u403)
+(define-constant err-invalid-policy u404)
+(define-constant err-inactive-policy u405)
+
+(define-public (transfer-policy (policy-id uint) (new-owner principal))
+    (let (
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u404)))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u403))
+        (asserts! (is-eq (get status policy) policy-active) (err u405))
+        
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: new-owner,
+                premium: (get premium policy),
+                coverage-amount: (get coverage-amount policy),
+                status: (get status policy),
+                expiry: (get expiry policy)
+            }
+        )
+        (ok true)
+    )
+)
+
+
+(define-map policy-claims 
+    { policy-id: uint }
+    { claim-count: uint, total-claimed: uint }
+)
+
+(define-map claim-history
+    { policy-id: uint, claim-index: uint }
+    { claim-id: uint, amount: uint }
+)
+
+(define-public (get-policy-claim-stats (policy-id uint))
+    (ok (default-to 
+        { claim-count: u0, total-claimed: u0 }
+        (map-get? policy-claims { policy-id: policy-id })
+    ))
+)
+
+(define-public (submit-claim-new (policy-id uint) (amount uint))
+    (let (
+        (claim-id (var-get next-claim-id))
+        (policy (unwrap! (map-get? policies {policy-id: policy-id}) (err u1)))
+        (current-stats (unwrap! (get-policy-claim-stats policy-id) (err u5)))
+        (new-claim-count (+ (get claim-count current-stats) u1))
+        (new-total-claimed (+ (get total-claimed current-stats) amount))
+    )
+        (asserts! (is-eq (get owner policy) tx-sender) (err u2))
+        (asserts! (is-eq (get status policy) policy-active) (err u3))
+        (asserts! (<= amount (get coverage-amount policy)) (err u4))
+        
+        (map-set claims
+            { claim-id: claim-id }
+            {
+                policy-id: policy-id,
+                amount: amount,
+                status: "PENDING",
+                timestamp: stacks-block-height
+            }
+        )
+        
+        (map-set policy-claims
+            { policy-id: policy-id }
+            {
+                claim-count: new-claim-count,
+                total-claimed: new-total-claimed
+            }
+        )
+        
+        (map-set claim-history
+            { policy-id: policy-id, claim-index: new-claim-count }
+            { claim-id: claim-id, amount: amount }
+        )
+        
+        (var-set next-claim-id (+ claim-id u1))
+        (ok claim-id)
+    )
+)
