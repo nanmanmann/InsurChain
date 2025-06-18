@@ -284,3 +284,25 @@
     )
 )
 
+(define-public (create-policy-with-risk-assessment (base-premium uint) (coverage-amount uint) (duration uint))
+    (let (
+        (policy-id (var-get next-policy-id))
+        (expiry-block (+ stacks-block-height duration))
+        (dynamic-premium (unwrap! (contract-call? .RiskAss calculate-dynamic-premium base-premium tx-sender) (err u6)))
+    )
+        (try! (stx-transfer? dynamic-premium tx-sender contract-owner))
+        (unwrap! (contract-call? .RiskAss record-new-policy tx-sender) (err u7))
+        (map-set policies
+            { policy-id: policy-id }
+            {
+                owner: tx-sender,
+                premium: dynamic-premium,
+                coverage-amount: coverage-amount,
+                status: policy-active,
+                expiry: expiry-block
+            }
+        )
+        (var-set next-policy-id (+ policy-id u1))
+        (ok policy-id)
+    )
+)
